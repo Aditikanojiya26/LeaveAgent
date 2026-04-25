@@ -1,0 +1,62 @@
+# --------------------
+# Python
+# --------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+
+# --------------------
+# Virtual Environment
+# --------------------
+venv/
+.env/
+
+# --------------------
+# Environment Variables
+# --------------------
+.env
+.env.*
+!.env.example
+
+# --------------------
+# Logs
+# --------------------
+*.log
+
+# --------------------
+# VS Code / IDE
+# --------------------
+.vscode/
+.idea/
+
+# --------------------
+# OS Files
+# --------------------
+.DS_Store
+Thumbs.db
+
+# --------------------
+# FastAPI / Temp
+# --------------------
+*.db
+*.sqlite
+
+# --------------------
+# Node (Frontend)
+# --------------------
+client/node_modules/
+client/dist/
+client/build/
+
+# --------------------
+# Testing / Coverage
+# --------------------
+.coverage
+htmlcov/
+
+# --------------------
+# LangChain / LangGraph / Cache
+# --------------------
+.cache/

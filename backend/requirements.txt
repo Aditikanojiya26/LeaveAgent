@@ -1,0 +1,22 @@
+# FastAPI backend
+fastapi
+uvicorn
+
+# Database
+psycopg[binary]
+
+# Environment variables
+python-dotenv
+
+# Authentication
+passlib[bcrypt]
+python-jose
+
+# LangGraph + LLM
+langgraph
+langchain
+langchain-google-genai
+
+# LangGraph persistence (PostgreSQL)
+langgraph-checkpoint-postgres
+langsmith

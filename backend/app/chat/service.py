@@ -1,152 +1,160 @@
-import uuid
-from app.db import get_conn
-
+from sqlalchemy.orm import Session
+from app.models.chat import ChatSession, ChatMessage
+from app.models.user import User
+from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.postgres import PostgresSaver
-from app.db import DATABASE_URL
+from sqlalchemy.orm import joinedload
+
+from app.graph.runtime import graph
+
+import uuid
+import os 
+from dotenv import load_dotenv
+load_dotenv() 
+DATABASE_URL = os.getenv("DATABASE_URL")
 from app.graph.builder import build_graph
-from langsmith import traceable
 
+import uuid
 
-def create_chat_session(user_id: int):
+def create_chat_session(db: Session, user_id: int):
     thread_id = str(uuid.uuid4())
-    title = "New Chat"
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO chat_sessions (user_id, thread_id, title)
-                VALUES (%s, %s, %s)
-                RETURNING id, title, thread_id, created_at
-                """,
-                (user_id, thread_id, title)
-            )
-            row = cur.fetchone()
-        conn.commit()
+    chat = ChatSession(
+        user_id=user_id,
+        thread_id=thread_id,
+        title="New Chat"
+    )
+
+    db.add(chat)
+    db.commit()
+    db.refresh(chat)
 
     return {
-        "chat_id": row[0],
-        "title": row[1],
-        "thread_id": row[2],
-        "created_at": str(row[3]),
+        "chat_id": chat.id,
+        "title": chat.title,
+        "thread_id": chat.thread_id,
+        "created_at": str(chat.created_at),
     }
 
-
-def list_chat_sessions(user_id: int):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, title, thread_id, created_at
-                FROM chat_sessions
-                WHERE user_id = %s
-                ORDER BY created_at DESC
-                """,
-                (user_id,)
-            )
-            rows = cur.fetchall()
+def list_chat_sessions(db: Session, user_id: int):
+    chats = (
+        db.query(ChatSession)
+        .filter(ChatSession.user_id == user_id)
+        .order_by(ChatSession.created_at.desc())
+        .all()
+    )
 
     return [
         {
-            "chat_id": row[0],
-            "title": row[1],
-            "thread_id": row[2],
-            "created_at": str(row[3]),
+            "chat_id": chat.id,
+            "title": chat.title,
+            "thread_id": chat.thread_id,
+            "created_at": str(chat.created_at),
         }
-        for row in rows
+        for chat in chats
     ]
 
 
-@traceable
+def send_chat_message(
+    db: Session,
+    user_id: int,
+    chat_id: int,
+    message: str
+):
+    chat = (
+    db.query(ChatSession)
+    .options(joinedload(ChatSession.user))
+    .filter(ChatSession.id == chat_id, ChatSession.user_id == user_id)
+    .first()
+    )
+    user = chat.user
 
-def send_chat_message(user_id: int, chat_id: int, message: str):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT thread_id
-                FROM chat_sessions
-                WHERE id = %s AND user_id = %s
-                """,
-                (chat_id, user_id)
-            )
-            row = cur.fetchone()
+    # 2️⃣ Save user message
+    user_msg = ChatMessage(
+        chat_id=chat_id,
+        role="user",
+        content=message
+    )
+    db.add(user_msg)
+    db.commit()  
+    result = graph.invoke(
+            {
+                "messages": [HumanMessage(content=message)],
+                # ❌ REMOVE these — not serializable, move to configurable
+                # "user_id": user.id,
+                # "db": db,
 
-            if not row:
-                raise Exception("Chat not found")
-
-            thread_id = str(row[0])
-
-            cur.execute(
-                """
-                INSERT INTO chat_messages (chat_id, role, content)
-                VALUES (%s, %s, %s)
-                """,
-                (chat_id, "user", message)
-            )
-            conn.commit()
-
-    with PostgresSaver.from_conn_string(DATABASE_URL) as checkpointer:
-        checkpointer.setup()
-        graph = build_graph(checkpointer)
-
-        result = graph.invoke(
-            {"messages": [{"role": "user", "content": message}]},
-            config={"configurable": {"thread_id": thread_id}}
+                # ✅ KEEP only serializable state fields
+                "intent": None,
+                "answer": None,
+                "role": user.role,   # only if role is a plain string
+            },
+            config={
+                "configurable": {
+                    "thread_id": str(chat.thread_id),
+                    # ✅ ADD these here instead
+                    "user_id": user.id,
+                    "chat_id": chat.id,
+                    "db": db,
+                }
+            }
         )
 
-    ai_msg = result["messages"][-1]
-    assistant_text = ai_msg.content
-    print(assistant_text)
+# Because our new graph returns:
+#return {
+#     "answer": answer,                  # ✅ immediate response
+#     "messages": [AIMessage(content=answer)],  # ✅ memory append
+# }
+    # 4️⃣ Extract response
+    assistant_text = result.get("answer")
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO chat_messages (chat_id, role, content)
-                VALUES (%s, %s, %s)
-                """,
-                (chat_id, "assistant", assistant_text)
-            )
-            conn.commit()
+    if not assistant_text and result.get("messages"):
+        assistant_text = result["messages"][-1].content
+
+    if not assistant_text:
+        assistant_text = "Sorry, something went wrong."
+
+    # 5️⃣ Save assistant message
+    ai_msg = ChatMessage(
+        chat_id=chat_id,
+        role="assistant",
+        content=assistant_text
+    )
+
+    db.add(ai_msg)
+    db.commit()
 
     return {
         "chat_id": chat_id,
         "assistant_message": assistant_text
     }
-def list_chat_messages(user_id: int, chat_id: int):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT 1
-                FROM chat_sessions
-                WHERE id = %s AND user_id = %s
-                """,
-                (chat_id, user_id)
-            )
-            exists = cur.fetchone()
 
-            if not exists:
-                raise Exception("Chat not found")
+def list_chat_messages(db: Session, user_id: int, chat_id: int):
+    chat = (
+        db.query(ChatSession)
+        .filter(
+            ChatSession.id == chat_id,
+            ChatSession.user_id == user_id
+        )
+        .first()
+    )
 
-            cur.execute(
-                """
-                SELECT id, role, content, created_at
-                FROM chat_messages
-                WHERE chat_id = %s
-                ORDER BY created_at ASC, id ASC
-                """,
-                (chat_id,)
-            )
-            rows = cur.fetchall()
+    if not chat:
+        raise Exception("Chat not found")
+
+    messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.chat_id == chat_id)
+        .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
+        .all()
+    )
 
     return [
         {
-            "id": row[0],
-            "role": row[1],
-            "content": row[2],
-            "created_at": row[3].isoformat() if row[3] else None,
+            "id": msg.id,
+            "role": msg.role,
+            "content": msg.content,
+            "created_at": msg.created_at.isoformat() if msg.created_at else None,
         }
-        for row in rows
+        for msg in messages
     ]

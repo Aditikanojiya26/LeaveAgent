@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Response, HTTPException, Request
-from app.db import get_conn
-from app.auth.utils import hash_password, verify_password, create_token
+from fastapi import APIRouter, Response, HTTPException, Request, Depends
+from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 import os
+
+from app.db import get_db
+from app.models.user import User
+from app.auth.utils import hash_password, verify_password, create_token
+from app.schemas.auth import RegisterRequest, LoginRequest
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -11,47 +15,61 @@ ALGORITHM = os.getenv("ALGORITHM")
 
 
 @router.post("/register")
-def register(data: dict):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)",
-                (data["name"], data["email"], hash_password(data["password"]))
-            )
-        conn.commit()
+def register(data: RegisterRequest, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == data.email).first()
+
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    if data.role == "employee" and data.manager_id is None:
+        raise HTTPException(status_code=400, detail="Manager is required for employee")
+
+    if data.role != "employee":
+        data.manager_id = None
+
+    new_user = User(
+        name=data.name,
+        email=data.email,
+        password_hash=hash_password(data.password),
+        role=data.role,
+        manager_id=data.manager_id,
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
 
     return {"msg": "User created"}
 
 
 @router.post("/login")
-def login(data: dict, response: Response):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, name, email, password_hash FROM users WHERE email = %s",
-                (data["email"],)
-            )
-            user = cur.fetchone()
+def login(
+    data: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.email == data.email).first()
 
-    if not user or not verify_password(data["password"], user[3]):
+    if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_token({"user_id": user[0]})
+    token = create_token({"user_id": user.id})
 
     response.set_cookie(
-    key="access_token",
-    value=token,
-    httponly=True,
-    secure=False,   # local dev
-    samesite="lax"
-)
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=False,
+        samesite="lax"
+    )
 
     return {
         "msg": "Logged in",
         "user": {
-            "id": user[0],
-            "name": user[1],
-            "email": user[2]
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role
         }
     }
 
@@ -70,24 +88,23 @@ def get_current_user(request: Request):
 
 
 @router.get("/me")
-def me(request: Request):
+def me(
+    request: Request,
+    db: Session = Depends(get_db)
+):
     user_id = get_current_user(request)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, name, email FROM users WHERE id = %s",
-                (user_id,)
-            )
-            user = cur.fetchone()
+    user = db.query(User).filter(User.id == user_id).first()
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     return {
-        "id": user[0],
-        "name": user[1],
-        "email": user[2]
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "manager_id": user.manager_id
     }
 
 

@@ -1,16 +1,32 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.models import create_tables
 from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
+from app.crud.routes import router as user_router
 from dotenv import load_dotenv
-load_dotenv(override=True) 
+
+load_dotenv()
+
+from app.models.user import User
+from app.models.chat import ChatSession, ChatMessage
+from app.models.leave import LeaveRequest, ProjectDeadline, Task,LeaveApproval, LeaveBalance
+from app.db import Base, engine
+from app.manager.routes import router as manager_router
+
+
+def create_tables():
+    Base.metadata.create_all(bind=engine)
+    
+
+
+create_tables()   
+
 
 app = FastAPI()
 
 origins = [
     "http://localhost:5173",
-]   
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,11 +36,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-create_tables()
-
 app.include_router(auth_router)
 app.include_router(chat_router)
+app.include_router(user_router)
+app.include_router(manager_router)
+
 
 @app.get("/")
 def root():

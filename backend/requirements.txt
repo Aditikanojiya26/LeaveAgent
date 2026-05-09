@@ -2,8 +2,6 @@
 fastapi
 uvicorn
 
-# Database
-psycopg[binary]
 
 # Environment variables
 python-dotenv
@@ -20,3 +18,10 @@ langchain-google-genai
 # LangGraph persistence (PostgreSQL)
 langgraph-checkpoint-postgres
 langsmith
+
+sqlalchemy 
+psycopg2-binary 
+pydantic
+email-validator
+python-dateutil
+python-jose[cryptography]

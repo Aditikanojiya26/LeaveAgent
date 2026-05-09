@@ -1,15 +1,14 @@
-from dotenv import load_dotenv
-from langsmith import traceable
-import os
+# pip install google-generativeai
 
-load_dotenv(override=True)
+import google.generativeai as genai
 
-print("Tracing:", os.getenv("LANGSMITH_TRACING"))
-print("Project:", os.getenv("LANGSMITH_PROJECT"))
-print("Key exists:", bool(os.getenv("LANGSMITH_API_KEY")))
+genai.configure(api_key="AIzaSyDO8JTTf1jS8IB-wOjhvPox-A51UcUYbnA")
 
-@traceable
-def test_langsmith(x):
-    return x + 1
+models = list(genai.list_models())
 
-print(test_langsmith(10))
+print(f"Total models available: {len(models)}\n")
+for model in models:
+    print(f"Name:         {model.name}")
+    print(f"Display Name: {model.display_name}")
+    print(f"Description:  {model.description}")
+    print("-" * 50)

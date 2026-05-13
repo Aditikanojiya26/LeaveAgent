@@ -4,7 +4,7 @@ from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
 from app.crud.routes import router as user_router
 from dotenv import load_dotenv
-
+import os 
 load_dotenv()
 
 from app.models.user import User

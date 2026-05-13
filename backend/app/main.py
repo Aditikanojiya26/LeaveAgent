@@ -28,7 +28,7 @@ frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 origins = [
     "http://localhost:5173",
-    frontend_url,
+    "https://leaveagent.onrender.com",
 ]
 
 app.add_middleware(

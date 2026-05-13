@@ -24,8 +24,11 @@ create_tables()
 
 app = FastAPI()
 
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
 origins = [
     "http://localhost:5173",
+    frontend_url,
 ]
 
 app.add_middleware(

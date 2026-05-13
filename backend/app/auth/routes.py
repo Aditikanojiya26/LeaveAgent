@@ -55,12 +55,15 @@ def login(
 
     token = create_token({"user_id": user.id})
 
+    IS_PROD = os.getenv("ENV") == "production"
+
     response.set_cookie(
         key="access_token",
         value=token,
         httponly=True,
-        secure=False,
-        samesite="lax"
+        secure=IS_PROD,
+        samesite="none" if IS_PROD else "lax",
+        max_age=60 * 60 * 24,
     )
 
     return {
